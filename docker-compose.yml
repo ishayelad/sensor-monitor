@@ -16,7 +16,7 @@ services:
     container_name: mysql-server
     environment:
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: senesor_monitor
+      MYSQL_DATABASE: sensor_data
     ports:
       - "3306:3306"
 

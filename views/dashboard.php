@@ -10,7 +10,10 @@
 <body>
     <h1>Sensor Monitor</h1>
     <h2>Dashboard</h2>
-    <p>This is a simple HTML response.</p>
+    <div class="actions">
+        <a href="/reports/hourly">Hourly Average Reports</a>
+        <a href="/reports/malfunctions">Malcunftions</a>
+    </div>
 </body>
 
 </html>

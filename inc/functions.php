@@ -7,10 +7,10 @@
  * @param mysqli $db
  * @return array|false
  */
-function get_query_result($sql, $db)
+function get_query_result($sql, $db, $params = [])
 {
 
-    $q = $db->query($sql);
+    $q = $db->execute_query($sql, $params);
     if ($q) {
         $res = $q->fetch_all(MYSQLI_ASSOC);
         if (is_array($res)) return $res;
@@ -59,59 +59,81 @@ function check_sensor_exists($data)
     global $db;
     $insertion = $db->execute_query(
         "INSERT INTO `sensors` (`id`, `face`, `last_active`) VALUES (?, ?, FROM_UNIXTIME(?)) 
-            ON DUPLICATE KEY UPDATE `last_active` = (SELECT MAX(`timestamp`) FROM `sensor_readings` WHERE `sensor_id` = ?)",
+            ON DUPLICATE KEY UPDATE `last_active` = COALESCE((SELECT MAX(`timestamp`) FROM `sensor_readings` WHERE `sensor_id` = ?), FROM_UNIXTIME(?))",
         [
             $data['id'],
             $data['face'],
             $data['timestamp'],
-            $data['id']
+            $data['id'],
+            $data['timestamp']
         ]
     );
     return $insertion;
 }
 
 /**
- * Calculate hourly average temp for each face of the building
+ * Calculate hourly average temp for each face of the building.
+ * Calculate the current hour's average only, to prevent unnacessary calculations and boost performance on data reading.
  *
  * @return void
  */
-function calc_faces_avg()
+function calc_faces_avg($hourDate)
 {
+
+    // Extract the start and end of the given hour
+    $start = "{$hourDate}:00:00";
+    $end = "{$hourDate}:59:59";
+
     global $db;
     $avgs = get_query_result("SELECT 
-        min(DATE_FORMAT(`timestamp`, '%Y-%m-%d %H:00:00')) AS hour,
         `face`,
-        TRUNCATE(AVG(`temperature`), 2) AS avg_temp,
-        count(*) as count
+        DATE_FORMAT(`timestamp`, '%Y-%m-%d %H') AS hour,
+        AVG(`temperature`) AS avg_temp
     FROM `sensor_readings` sr JOIN `sensors` s ON sr.`sensor_id` = s.`id`
+    WHERE `timestamp` BETWEEN ? AND ? # Using BETWEEN instead of LIKE for performance
     GROUP BY `face`, DATE_FORMAT(`timestamp`, '%Y-%m-%d %H')
-    ORDER BY `hour` ASC, `face`", $db);
+    ORDER BY `face`", $db, [$start, $end]);
+
+    if ($avgs) {
+        $faces = [];
+        foreach ($avgs as $row) {
+            // Sort associative array: ['north' => 25.02, ...]
+            $avgTemp = number_format($row['avg_temp'], 2);
+            $faces[$row['face']] = $avgTemp;
+
+            // Insert/update average reports
+            $db->execute_query("INSERT INTO `hourly_averages` (`face`, `hour`, `temperature`) VALUES (?, ?, ?) 
+            ON DUPLICATE KEY UPDATE `temperature` = ?", [$row['face'], $start, $avgTemp, $avgTemp]);
+        }
+
+        return $faces;
+    }
+
+    return false;
 }
 
 /**
- * Calculate hourly average temp for a sensor
+ * Detect malfunctioning sensors
  *
  * @return void
  */
-function calc_sensor_avg()
+function detect_malfunctions()
 {
     global $db;
-    $avgs = get_query_result("SELECT 
-        min(DATE_FORMAT(`timestamp`, '%Y-%m-%d %H:00:00')) AS hour,
-        `face`,
-        TRUNCATE(AVG(`temperature`), 2) AS avg_temp,
-        count(*) as count
-    FROM `sensor_readings` sr JOIN `sensors` s ON sr.`sensor_id` = s.`id`
-    GROUP BY `face`, DATE_FORMAT(`timestamp`, '%Y-%m-%d %H')
-    ORDER BY `hour` ASC, `face`", $db);
 }
 
+/**
+ * Detect & delete inactive sensors, along with their sensor_readings (automatic cascade)
+ *
+ * @return boolean
+ */
 function detect_inactive_sensors()
 {
     $currentTime = get_current_time();
     if (!$currentTime) return;
 
-
+    global $db;
+    return $db->execute_query("DELETE FROM `sensors` WHERE `last_active` < DATE_SUB(?, INTERVAL 24 HOUR)", [$currentTime]);
 }
 
 /**
@@ -123,7 +145,7 @@ function detect_inactive_sensors()
 function get_current_time()
 {
     global $db;
-    $timeQ = get_query_result("SELECT MAX(`last_active`) current_time FROM `sensors`", $db);
+    $timeQ = get_query_result("SELECT MAX(`last_active`) as `current_time` FROM `sensors`", $db);
     if ($timeQ) return $timeQ[0]['current_time'];
 
     return false; // DB is probably empty

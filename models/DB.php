@@ -52,9 +52,8 @@ class DB
         $sensors = $db->query("CREATE TABLE IF NOT EXISTS `sensors` (
             `id` INT AUTO_INCREMENT PRIMARY KEY,
             `face` ENUM('north', 'south', 'east', 'west') NOT NULL,
-            `last_active` TIMESTAMP NOT NULL,
-            `removed` TINYINT DEFAULT 0
-        );");
+            `last_active` TIMESTAMP NOT NULL
+        )");
 
         $sensorReadings = $db->query("CREATE TABLE IF NOT EXISTS `sensor_readings` (
             `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -64,18 +63,25 @@ class DB
             `timestamp` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (`sensor_id`) REFERENCES sensors(`id`) ON DELETE CASCADE,
             UNIQUE KEY `unique_sensor_timestamp` (`sensor_id`, `timestamp`)
-        );");
+        )");
 
         $malfunctions = $db->query("CREATE TABLE IF NOT EXISTS `malfunctions` (
             `id` INT AUTO_INCREMENT PRIMARY KEY,
             `sensor_id` INT NOT NULL,
-            `reading_id` INT NOT NULL,
+            `face` ENUM('north', 'south', 'east', 'west') NOT NULL,
             `report_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `deviation_pc` DOUBLE NOT NULL,
-            FOREIGN KEY (`sensor_id`) REFERENCES sensors(`id`),
-            FOREIGN KEY (`reading_id`) REFERENCES sensor_readings(`id`)
-        );");
+            FOREIGN KEY (`sensor_id`) REFERENCES sensors(`id`) ON DELETE CASCADE
+        )");
 
-        if (!$sensors || !$sensorReadings || !$malfunctions) die("Error initializing tables: " . $db->error);
+        $hourlyAvgs = $db->query("CREATE TABLE IF NOT EXISTS `hourly_averages` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `face` ENUM('north', 'south', 'east', 'west') NOT NULL,
+            `hour` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `temperature` DOUBLE NOT NULL,
+            UNIQUE KEY `unique_face_hour` (`face`, `hour`)
+        )");
+
+        if (!$sensors || !$sensorReadings || !$malfunctions || !$hourlyAvgs) die("Error initializing tables: " . $db->error);
     }
 }
