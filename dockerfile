@@ -12,10 +12,13 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
-COPY . /var/www/html
-RUN chown -R www-data:www-data /var/www/html
-
+# Install composer dependencies before copying project files
+COPY composer.json composer.lock /var/www/html/
 RUN composer install --no-dev --optimize-autoloader
+
+COPY . /var/www/html
+
+RUN chown -R www-data:www-data /var/www/html
 
 EXPOSE 80
 

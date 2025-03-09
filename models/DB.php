@@ -52,7 +52,8 @@ class DB
         $sensors = $db->query("CREATE TABLE IF NOT EXISTS `sensors` (
             `id` INT AUTO_INCREMENT PRIMARY KEY,
             `face` ENUM('north', 'south', 'east', 'west') NOT NULL,
-            `last_active` TIMESTAMP NOT NULL
+            `last_active` TIMESTAMP NOT NULL,
+            INDEX `idx_sensors_last_active` (`last_active`)
         )");
 
         $sensorReadings = $db->query("CREATE TABLE IF NOT EXISTS `sensor_readings` (
@@ -62,7 +63,8 @@ class DB
             `malfunctioned` TINYINT DEFAULT 0,
             `timestamp` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (`sensor_id`) REFERENCES sensors(`id`) ON DELETE CASCADE,
-            UNIQUE KEY `unique_sensor_timestamp` (`sensor_id`, `timestamp`)
+            UNIQUE KEY `unique_sensor_timestamp` (`sensor_id`, `timestamp`),
+            INDEX `idx_sensor_readings_time_temp` (`timestamp`, `temperature`)
         )");
 
         $malfunctions = $db->query("CREATE TABLE IF NOT EXISTS `malfunctions` (
@@ -80,7 +82,8 @@ class DB
             `face` ENUM('north', 'south', 'east', 'west') NOT NULL,
             `hour` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `temperature` DOUBLE NOT NULL,
-            UNIQUE KEY `unique_face_hour` (`face`, `hour`)
+            UNIQUE KEY `unique_face_hour` (`face`, `hour`),
+            INDEX `idx_hourly_averages_face_hour_temp` (`face`, `hour`, `temperature`)
         )");
 
         if (!$sensors || !$sensorReadings || !$malfunctions || !$hourlyAvgs) die("Error initializing tables: " . $db->error);

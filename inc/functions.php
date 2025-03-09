@@ -154,9 +154,9 @@ function detect_malfunctions($hour, $avgs)
         $detected = true;
 
         foreach ($malfunctions as $mf) {
-            
+
             // Calc deviation percentage
-            $diffPc = number_format((($mf['temperature'] - $avg['temp']) / abs($avg['temp'])) * 100, 2);
+            $diffPc = abs(number_format((($mf['temperature'] - $avg['temp']) / abs($avg['temp'])) * 100, 2));
             error_log("[DEBUG] Face: {$face}, Avg: {$avg['temp']}, Reading temp: {$mf['temperature']} ({$diffPc}%), Sensor: {$mf['sensor_id']}");
 
             // Document & delete malfunctioned sensors
@@ -203,10 +203,31 @@ function get_current_time()
  *
  * @return array|false
  */
-function get_hourly_reports() {
+function get_hourly_reports($pastWeek = false)
+{
     global $db;
-    $currentTime = get_current_time();
-    $reports = get_query_result("SELECT * FROM `hourly_averages` WHERE `hour` > DATE_SUB(?, INTERVAL 7 DAY)", $db, [$currentTime]);
+
+    $sql = "SELECT * FROM `hourly_averages`";
+    if ($pastWeek) {
+        $currentTime = get_current_time();
+        $sql .= " WHERE `hour` > DATE_SUB('{$currentTime}', INTERVAL 7 DAY)";
+    }
+    $sql .= " ORDER BY `hour` DESC";
+
+    $reports = get_query_result($sql, $db);
+
+    return $reports;
+}
+
+/**
+ * Get all reported malfunctions.
+ *
+ * @return array|false
+ */
+function get_malfunctions()
+{
+    global $db;
+    $reports = get_query_result("SELECT * FROM `malfunctions` ORDER BY `report_time` DESC", $db);
 
     return $reports;
 }

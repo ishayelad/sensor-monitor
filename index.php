@@ -30,18 +30,19 @@ $app->get('/', function (Request $request, Response $response) {
  */
 $app->post('/sensor-reading', function (Request $request, Response $response) {
 
-    $data = json_decode($request->getBody(), true);
+    $data = json_decode($request->getBody());
     $reportHours = []; // Accumulate hours from all incoming reports to calculate their averages, and allow retroactive data insertion.
+    
     if (!is_array($data)) $data = [$data];
-
+    // $data = array_chunk($data, 10000)[0];
     foreach ($data as $row) {
         // Data validation
         if (
-            !isset($row['id'], $row['timestamp'], $row['temperature'], $row['face']) ||
-            !is_numeric($row['id']) ||
-            !is_numeric($row['temperature']) ||
-            !is_numeric($row['timestamp']) ||
-            !in_array($row['face'], ['north', 'south', 'east', 'west'])
+            !isset($row->id, $row->timestamp, $row->temperature, $row->face) ||
+            !is_numeric($row->id) ||
+            !is_numeric($row->temperature) ||
+            !is_numeric($row->timestamp) ||
+            !in_array($row->face, ['north', 'south', 'east', 'west'])
         ) {
             $error = ['error' => 'Invalid input data', 'data' => $row];
             $response->getBody()->write(json_encode($error));
@@ -49,14 +50,14 @@ $app->post('/sensor-reading', function (Request $request, Response $response) {
                 ->withStatus(400);
         }
 
-        $save = save_sensor_reading($row);
+        $save = save_sensor_reading((array)$row);
 
         if (!$save['success']) {
             $response->getBody()->write(json_encode($save));
             return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
         }
 
-        $hourDate = date('Y-m-d H', $row['timestamp']);
+        $hourDate = date('Y-m-d H', $row->timestamp);
         $reportHours[] = $hourDate;
     }
 
@@ -78,6 +79,16 @@ $app->get('/reports/hourly', function (Request $request, Response $response) {
 
     ob_start();
     include('./views/hourly-report.php');
+    $html = ob_get_clean();
+
+    $response->getBody()->write($html);
+    return $response->withHeader('Content-Type', 'text/html');
+});
+
+$app->get('/reports/malfunctions', function (Request $request, Response $response) {
+
+    ob_start();
+    include('./views/malfunction-report.php');
     $html = ob_get_clean();
 
     $response->getBody()->write($html);
