@@ -12,7 +12,7 @@
     <h2>Dashboard</h2>
     <div class="actions">
         <a href="/reports/hourly">Hourly Average Reports</a>
-        <a href="/reports/malfunctions">Malcunftions</a>
+        <a href="/reports/malfunctions">Malfunctions</a>
     </div>
 </body>
 

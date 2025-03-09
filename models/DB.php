@@ -70,8 +70,9 @@ class DB
             `sensor_id` INT NOT NULL,
             `face` ENUM('north', 'south', 'east', 'west') NOT NULL,
             `report_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            `deviation_pc` DOUBLE NOT NULL,
-            FOREIGN KEY (`sensor_id`) REFERENCES sensors(`id`) ON DELETE CASCADE
+            `reported_temp` DOUBLE NOT NULL,
+            `avg_face_temp` DOUBLE NOT NULL,
+            `deviation_pc` DOUBLE NOT NULL
         )");
 
         $hourlyAvgs = $db->query("CREATE TABLE IF NOT EXISTS `hourly_averages` (

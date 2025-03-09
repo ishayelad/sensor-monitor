@@ -30,18 +30,18 @@ $app->get('/', function (Request $request, Response $response) {
  */
 $app->post('/sensor-reading', function (Request $request, Response $response) {
 
-    $data = json_decode($request->getBody());
+    $data = json_decode($request->getBody(), true);
     $reportHours = []; // Accumulate hours from all incoming reports to calculate their averages, and allow retroactive data insertion.
     if (!is_array($data)) $data = [$data];
 
     foreach ($data as $row) {
         // Data validation
         if (
-            !isset($row->id, $row->timestamp, $row->temperature, $row->face) ||
-            !is_numeric($row->id) ||
-            !is_numeric($row->temperature) ||
-            !is_numeric($row->timestamp) ||
-            !in_array($row->face, ['north', 'south', 'east', 'west'])
+            !isset($row['id'], $row['timestamp'], $row['temperature'], $row['face']) ||
+            !is_numeric($row['id']) ||
+            !is_numeric($row['temperature']) ||
+            !is_numeric($row['timestamp']) ||
+            !in_array($row['face'], ['north', 'south', 'east', 'west'])
         ) {
             $error = ['error' => 'Invalid input data', 'data' => $row];
             $response->getBody()->write(json_encode($error));
@@ -49,21 +49,24 @@ $app->post('/sensor-reading', function (Request $request, Response $response) {
                 ->withStatus(400);
         }
 
-        $save = save_sensor_reading((array)$row);
+        $save = save_sensor_reading($row);
 
         if (!$save['success']) {
             $response->getBody()->write(json_encode($save));
             return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
         }
 
-        $hourDate = date('Y-m-d H', $row->timestamp);
+        $hourDate = date('Y-m-d H', $row['timestamp']);
         $reportHours[] = $hourDate;
     }
 
     $save['saved_count'] = count($data);
     $reportHours = array_unique($reportHours);
     foreach ($reportHours as $reportHour) {
-        calc_faces_avg($reportHour); // Calculate hourly avg's for newly inserted timestamps
+        $avgs = calc_faces_avg($reportHour); // Calculate hourly avg's for newly inserted timestamps
+        if (!$avgs) continue;
+        $detected = detect_malfunctions($reportHour, $avgs); // Detect malfunctions after hourly average calculation
+        if ($detected) calc_faces_avg($reportHour); // Re-calculate averages without malfunctions
     }
     detect_inactive_sensors(); // DELETE inactive sensors
 
@@ -73,7 +76,6 @@ $app->post('/sensor-reading', function (Request $request, Response $response) {
 
 $app->get('/reports/hourly', function (Request $request, Response $response) {
 
-    calc_hourly_avg();
     ob_start();
     include('./views/hourly-report.php');
     $html = ob_get_clean();

@@ -10,6 +10,14 @@
 function get_query_result($sql, $db, $params = [])
 {
 
+    // Query debugging
+    // $query = $sql;
+    // foreach ($params as $param) {
+    //     $query = preg_replace('/\?/', "'" . addslashes($param) . "'", $sql, 1);
+    // }
+    // error_log("[DEBUG] " . $query);
+    // error_log("[DEBUG] Params: " . json_encode($params));
+
     $q = $db->execute_query($sql, $params);
     if ($q) {
         $res = $q->fetch_all(MYSQLI_ASSOC);
@@ -75,7 +83,7 @@ function check_sensor_exists($data)
  * Calculate hourly average temp for each face of the building.
  * Calculate the current hour's average only, to prevent unnacessary calculations and boost performance on data reading.
  *
- * @return void
+ * @return array|false
  */
 function calc_faces_avg($hourDate)
 {
@@ -88,7 +96,8 @@ function calc_faces_avg($hourDate)
     $avgs = get_query_result("SELECT 
         `face`,
         DATE_FORMAT(`timestamp`, '%Y-%m-%d %H') AS hour,
-        AVG(`temperature`) AS avg_temp
+        AVG(`temperature`) AS avg_temp,
+        COUNT(`temperature`) AS reading_count
     FROM `sensor_readings` sr JOIN `sensors` s ON sr.`sensor_id` = s.`id`
     WHERE `timestamp` BETWEEN ? AND ? # Using BETWEEN instead of LIKE for performance
     GROUP BY `face`, DATE_FORMAT(`timestamp`, '%Y-%m-%d %H')
@@ -99,7 +108,7 @@ function calc_faces_avg($hourDate)
         foreach ($avgs as $row) {
             // Sort associative array: ['north' => 25.02, ...]
             $avgTemp = number_format($row['avg_temp'], 2);
-            $faces[$row['face']] = $avgTemp;
+            $faces[$row['face']] = ['temp' => $avgTemp, 'reading_count' => $row['reading_count']];
 
             // Insert/update average reports
             $db->execute_query("INSERT INTO `hourly_averages` (`face`, `hour`, `temperature`) VALUES (?, ?, ?) 
@@ -113,13 +122,51 @@ function calc_faces_avg($hourDate)
 }
 
 /**
- * Detect malfunctioning sensors
+ * Validate sensor data for malfunctions after inserting to DB, using fresh hourly reports.
+ * Document and delete malfunctioned entries to prevent data corruption.
  *
- * @return void
+ * @return boolean
  */
-function detect_malfunctions()
+function detect_malfunctions($hour, $avgs)
 {
     global $db;
+
+    // Extract the start and end of the given hour
+    $start = "{$hour}:00:00";
+    $end = "{$hour}:59:59";
+    $detected = false;
+
+    foreach ($avgs as $face => $avg) {
+
+        // Minimize false-positives by skipping edge-case scenarios where malfunctions were made in the first readings of a given hour,
+        // before having enough data for comparison, causing corruption in the average calculation.
+        if ($avg['reading_count'] < 5) continue;
+
+        $maxDeviationTemp = number_format($avg['temp'] + (($avg['temp'] / 100) * 20), 2);
+        $minDeviationTemp = number_format($avg['temp'] - (($avg['temp'] / 100) * 20), 2);
+
+        $malfunctions = get_query_result("SELECT * FROM `sensor_readings` sr JOIN `sensors` s ON sr.`sensor_id` = s.`id`
+        WHERE s.`face` = ? 
+        AND `timestamp` BETWEEN ? AND ?
+        AND `temperature` NOT BETWEEN ? AND ?", $db, [$face, $start, $end, $minDeviationTemp, $maxDeviationTemp]);
+
+        if (!$malfunctions) continue;
+        $detected = true;
+
+        foreach ($malfunctions as $mf) {
+            
+            // Calc deviation percentage
+            $diffPc = number_format((($mf['temperature'] - $avg['temp']) / abs($avg['temp'])) * 100, 2);
+            error_log("[DEBUG] Face: {$face}, Avg: {$avg['temp']}, Reading temp: {$mf['temperature']} ({$diffPc}%), Sensor: {$mf['sensor_id']}");
+
+            // Document & delete malfunctioned sensors
+            $db->execute_query("INSERT INTO `malfunctions` (`sensor_id`, `face`, `report_time`, `deviation_pc`, `reported_temp`, `avg_face_temp`)
+            VALUES (?, ?, ?, ?, ?, ?)", [$mf['sensor_id'], $face, $mf['timestamp'], $diffPc, $mf['temperature'], $avg['temp']]);
+            $db->execute_query("DELETE FROM `sensors` WHERE `id` = {$mf['sensor_id']}");
+        }
+    }
+
+    return $detected;
 }
 
 /**
@@ -140,7 +187,7 @@ function detect_inactive_sensors()
  * Get the pseudo-time for the current moment.
  * Current time is assumed to be the last sensor reading time.
  *
- * @return void
+ * @return string|false
  */
 function get_current_time()
 {
@@ -149,4 +196,17 @@ function get_current_time()
     if ($timeQ) return $timeQ[0]['current_time'];
 
     return false; // DB is probably empty
+}
+
+/**
+ * Get the past week's aggregated hourly data.
+ *
+ * @return array|false
+ */
+function get_hourly_reports() {
+    global $db;
+    $currentTime = get_current_time();
+    $reports = get_query_result("SELECT * FROM `hourly_averages` WHERE `hour` > DATE_SUB(?, INTERVAL 7 DAY)", $db, [$currentTime]);
+
+    return $reports;
 }
